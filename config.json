@@ -1,14 +1,11 @@
 {
-    "SONARR_API_URL": "http://192.168.0.10:8990/sonarr/api/v3",
-    "SONARR_API_KEY": "e39aac07b850444ababc4e615bf50b0e",
+    "SONARR_API_URL": "http://<YourSonarrInstance>:8990/sonarr/api/v3",
+    "SONARR_API_KEY": "YourSonarrAPI",
     "DEBUG": false,
     "max_moves": 1,
     "dry_run": false,
     "timeout_seconds": 36000,
     "valid_root_paths": [
-        "/tv1",
-        "/tv2",
-        "/tv3",
-        "/tv4"
+        "/tv1"
     ]
 }
