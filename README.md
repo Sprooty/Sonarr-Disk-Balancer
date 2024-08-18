@@ -1,5 +1,4 @@
 # Sonarr-Disk-Balancer# Project Documentation
-
 ## Overview
 
 This Python script is designed to manage TV series storage by interfacing with a Sonarr API. It optimizes disk space usage by moving TV series between disks based on free space predictions. The script performs a variety of functions including fetching series and disk space information, recommending moves, executing those moves, and logging all actions.
@@ -50,10 +49,48 @@ The script is configured through a `config.json` file which contains several par
 ### Error Handling
 - Comprehensive error handling mechanisms are in place to manage API interaction failures, logging issues, and unexpected script behavior, which helps maintain stability and usability.
 
-
 ## Execution Flow
 
 1. Fetches series and disk space data from Sonarr.
 2. Saves current move history to a file.
 3. Reports on disk space both currently and predicted after hypothetical moves.
 4. Performs actual disk space balancing based on configured parameters.
+
+## Setup
+
+Clone or Download the Script:
+Download the script files to your local machine, either by cloning the repository if available, or by directly downloading the files.
+
+Configuration File:
+Ensure you have the `config.json` file in the same directory as your script. This file should be configured according to your Sonarr setup and preferences as previously outlined.
+
+## Running the Script
+
+To run the script, follow these steps:
+
+1. Open your terminal or command prompt.
+2. Navigate to the directory containing the script. You can do this by running the command:
+```
+cd path/to/your/script
+```
+3. Execute the script using Python. Run the following command:
+```
+python script_name.py
+```
+Replace `script_name.py` with the actual name of your Python script.
+
+## Monitoring and Logs
+
+Logs:
+The script logs detailed information during execution, which can be found in the `logfile.log` file in the script's directory. Check this file for debugging and monitoring the script's activity.
+
+Dry Run Mode:
+You can set `dry_run` to `true` in your `config.json` to simulate changes without making actual modifications. This is useful for validating the logic and output of the script before performing live operations.
+
+## Troubleshooting
+
+If you encounter issues:
+
+- Ensure all dependencies are installed correctly.
+- Verify that your `config.json` file is correctly formatted and contains the correct settings for your environment.
+- Check the Python error output for specific messages that can help in diagnosing issues.
