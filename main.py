@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import time
 import re
+import argparse
 
 # Load configuration from config.json
 with open("config.json", "r") as config_file:
@@ -20,6 +21,8 @@ max_moves = config['max_moves']
 dry_run = config['dry_run']
 timeout = config['timeout_seconds']  
 valid_root_paths = [path.rstrip('/').lower() for path in config['valid_root_paths']]
+cooldown_days = config['cooldown_days']  # Read cooldown_days from the config
+
 
 
 # Setup logging to both file and console with UTF-8 encoding
@@ -167,7 +170,7 @@ def update_move_history(series_id, new_root_path, title):
     save_state(move_history, MOVE_HISTORY_FILE)
 
 
-def should_move_series(series_id, new_root_path, cooldown_days=7):
+def should_move_series(series_id, new_root_path):
     """Determine if the series should be moved, considering history."""
     move_history = load_state(MOVE_HISTORY_FILE)
     if str(series_id) in move_history:
@@ -185,48 +188,50 @@ def perform_moves(recommendations, max_moves, dry_run=False):
     """Perform the recommended moves."""
     state = load_state(STATE_FILE)
     moves_completed = 0
-    
+
     for rec in recommendations:
         if moves_completed >= max_moves:
             break
-        
+
         series_id = rec['series_id']
         new_root_path = rec['recommended_root']
         current_path = rec['path']
-        title = rec['title']  # Get the title from the recommendation
+        title = rec['title']
 
-        if str(series_id) in state:
-            continue
-        
         if should_move_series(series_id, new_root_path):
             success = move_series(series_id, new_root_path, dry_run)
             if success:
+                logger.info(f"Series '{title}' (ID: {series_id}) successfully moved to {new_root_path}.")
                 state[str(series_id)] = new_root_path
                 save_state(state, STATE_FILE)
-                update_move_history(series_id, new_root_path, title)  # Pass the title to the function
+                update_move_history(series_id, new_root_path, title)
                 moves_completed += 1
 
                 expected_path = f"{new_root_path}/{os.path.basename(current_path)}"
                 monitor_sonarr_logs(series_id, expected_path)
-    
+            else:
+                logger.warning(f"Failed to move Series '{title}' (ID: {series_id}). Not adding to state file.")
+        else:
+            logger.info(f"Series '{title}' (ID: {series_id}) not eligible for move based on should_move_series check.")
     logger.info(f"Completed {moves_completed} moves out of {max_moves} requested. The script will now exit.")
 
-def save_move_history_to_file():
-    """Save move history to a file."""
-    if os.path.exists(MOVE_HISTORY_FILE):
-        with open(MOVE_HISTORY_FILE, 'r', encoding='utf-8') as f:
-            move_history = json.load(f)
-        
-        # Save move history to its own file
-        with open('move_history.txt', 'w', encoding='utf-8') as f:
-            f.write("Move History:\n")
-            for series_id, details in move_history.items():
-                f.write(f"Series ID: {series_id}, Title: {details.get('title', 'Unknown')}, "
-                        f"Last Moved To: {details['last_moved_to']}, "
-                        f"Timestamp: {details['timestamp']}\n")
-    else:
-        with open('move_history.txt', 'w', encoding='utf-8') as f:
-            f.write("Move History: No move history found.\n")    
+def print_move_history(json_file):
+    """Prints the move history from a JSON file in a human-readable format."""
+    try:
+        with open(json_file, 'r') as file:
+            move_history = json.load(file)
+
+        print("Move History:")
+        print("=" * 40)
+        for series_id, path in move_history.items():
+            print(f"Series ID: {series_id} -> Moved to: {path}")
+    
+    except FileNotFoundError:
+        print(f"Error: The file {json_file} was not found.")
+    except json.JSONDecodeError:
+        print(f"Error: The file {json_file} is not a valid JSON.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
 
 def report_free_space_heuristically(series_df, disk_spaces, recommendations_file="recommendations.txt"):
@@ -280,7 +285,7 @@ def report_free_space_heuristically(series_df, disk_spaces, recommendations_file
     print("\nPredicted free space (in GB) after all potential moves:")
     print(final_free_space.loc[ordered_paths].to_frame(name='Free Space (GB)').to_string(index=True, header=True))
     
-def balance_free_space_heuristically(series_df, disk_spaces, max_moves=5, dry_run=False):
+def balance_free_space_heuristically(series_df, disk_spaces, dry_run=False):
     """Balance free space across drives using a heuristic approach."""
     disk_space_df = pd.DataFrame(disk_spaces).apply(lambda x: x.str.rstrip('/') if x.dtype == "object" else x)
     disk_space_df = disk_space_df.set_index('path')
@@ -290,9 +295,24 @@ def balance_free_space_heuristically(series_df, disk_spaces, max_moves=5, dry_ru
 
     series_df = series_df.sort_values(by='total_size_gb', ascending=True)
 
-    recommendations = []
+    # Load the state to filter out series that have already been moved
+    state = load_state(STATE_FILE)
 
-    for index, row in series_df.iterrows():
+    recommendations = []
+    total_size_to_move_gb = 0  # Initialize total size to be moved
+    moves_count = 0
+
+    for _, row in series_df.iterrows():
+        if moves_count >= max_moves:
+            break
+
+        series_id = row['series_id']
+
+        # Skip series already present in the state file
+        if str(series_id) in state:
+            logger.debug(f"Skipping recommendation for Series ID: {series_id} as it is already in the state file.")
+            continue
+
         best_drive = final_free_space.idxmax()
         if row['root_folder_path'] != best_drive:
             size_gb = row['total_size_gb']
@@ -306,7 +326,13 @@ def balance_free_space_heuristically(series_df, disk_spaces, max_moves=5, dry_ru
                 'path': row['path'],
                 'size_gb': size_gb
             })
+            total_size_to_move_gb += size_gb  # Add to the total size to be moved
+            moves_count += 1
 
+    # Log the total size to be moved
+    logging.info(f"Total size to be moved: {total_size_to_move_gb:.2f} GB across {moves_count} series")
+
+    # Perform the moves
     perform_moves(recommendations, max_moves, dry_run)
 
 def monitor_sonarr_logs(series_id, expected_path, poll_interval=3):
@@ -336,25 +362,47 @@ def monitor_sonarr_logs(series_id, expected_path, poll_interval=3):
     logger.error(f"Timeout reached: Sonarr did not log a successful move for Series ID: {series_id} to {expected_path}.")
     return False
 
+def validate_config():
+    """Validate critical configuration parameters."""
+    if not SONARR_API_URL or not SONARR_API_KEY:
+        logger.error("Critical configuration missing: SONARR_API_URL and SONARR_API_KEY must be set.")
+        sys.exit(1)
+        
 
 if __name__ == "__main__":
+    # Argument parsing for debugging and testing
+    parser = argparse.ArgumentParser(description="Sonarr Series Management Script")
+    parser.add_argument("--dry-run", action="store_true", help="Run the script in dry-run mode")
+    parser.add_argument("--max-moves", type=int, help="Override the maximum number of moves")
+    args = parser.parse_args()
+
+    # Override config values if provided via command line
+    if args.dry_run:
+        dry_run = True
+    if args.max_moves:
+        max_moves = args.max_moves
+
+    # Validate configuration before proceeding
+    validate_config()
+
+    # Call the function with the path to your move history JSON file
+    logger.info("Printing a list of historic moves.")
+    print_move_history('move_history.json')
+
     # Fetch series info
     series_df = get_series_info()
     
     # Fetch disk space info
     disk_spaces = get_free_space_via_api()
     
-    # Save move history to file
-    save_move_history_to_file()
-    
-    # Report free space heuristically with unlimited moves (no changes made)
+    # Report free space heuristically with unlimited moves
     if not series_df.empty:
         report_free_space_heuristically(series_df, disk_spaces)
     else:
         logger.info("No valid data available for reporting.")
-    
+
     # Balance free space heuristically and perform moves
     if not series_df.empty:
-        balance_free_space_heuristically(series_df, disk_spaces, max_moves=max_moves, dry_run=dry_run)
+        balance_free_space_heuristically(series_df, disk_spaces, dry_run=dry_run)
     else:
         logger.info("No valid data available for moving series.")
