@@ -5,6 +5,7 @@
     "max_moves": 1,
     "dry_run": false,
     "timeout_seconds": 36000,
+    "cooldown_days": 90,  
     "valid_root_paths": [
         "/tv1"
     ]
