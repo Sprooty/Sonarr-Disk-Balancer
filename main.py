@@ -337,6 +337,10 @@ def balance_free_space_heuristically(series_df, disk_spaces, dry_run=False):
 
 def monitor_sonarr_logs(series_id, expected_path, poll_interval=3):
     """Monitor Sonarr logs for successful move completion."""
+    if dry_run:
+        logger.info(f"Dry-run: Skipping Sonarr log monitoring for Series ID: {series_id} to {expected_path}.")
+        return True
+
     log_endpoint = f"{SONARR_API_URL}/log"
     headers = {"X-Api-Key": SONARR_API_KEY}
     
